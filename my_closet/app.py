@@ -39,7 +39,7 @@ google_creds_json = os.environ.get('GOOGLE_CREDENTIALS_JSON')
 creds_dict = json.loads(google_creds_json) if google_creds_json else {}
 
 PROJECT_ID = creds_dict.get("project_id")
-LOCATION = "us-central1"
+LOCATION = "us-west1"
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 
 try:
