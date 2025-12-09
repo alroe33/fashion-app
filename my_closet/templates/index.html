@@ -795,8 +795,7 @@ const dataDB = {
 
             if (result.status === 'success') {
                 const img = document.getElementById('main-model');
-                img.src = result.image_path + "?t=" + new Date().getTime();
-                img.style.display = 'block';
+                img.src = result.image_path;
                 document.getElementById('upload-hint-text').style.display = 'none';
             } else {
                 alert("오류 발생: " + result.message);
