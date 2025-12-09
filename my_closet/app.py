@@ -217,19 +217,44 @@ def generate():
         if not images:
             raise Exception("이미지 생성 실패 (서버 혼잡)")
 
-        # 5. 결과 변환 (Base64)
+        # 4. [수정] 이미지를 Base64로 변환 (파일 저장 -> 읽기 -> 삭제)
+        # 이유: Google AI 객체는 파일 경로로만 저장이 가능해서, 잠시 저장했다가 PIL로 불러옵니다.
+        
+        # 1) 임시 파일명 생성 (TEMP_FOLDER 사용)
+        temp_filename = os.path.join(TEMP_FOLDER, f"temp_{current_user.id}_{int(time.time())}.png")
+        
+        # 2) 파일로 저장 (여기서는 format 옵션을 쓰지 않고, 경로만 줍니다!)
+        images[0].save(location=temp_filename) 
+
+        # 3) PIL 라이브러리로 다시 열기 (이제부터는 PIL 객체입니다)
+        pil_image = Image.open(temp_filename)
+        
+        # 4) 메모리 버퍼에 담기 (이제 format 옵션 사용 가능!)
         img_io = BytesIO()
-        images[0].save(img_io, format='PNG')
+        pil_image.save(img_io, format='PNG') 
         img_io.seek(0)
+        
+        # 5) Base64 인코딩
         img_base64 = base64.b64encode(img_io.getvalue()).decode('utf-8')
         img_data_url = f"data:image/png;base64,{img_base64}"
         
+        # 6) 임시 파일 삭제 (청소)
+        try:
+            os.remove(temp_filename)
+        except:
+            pass # 혹시 삭제 못 해도 패스
+
         return jsonify({'status': 'success', 'image_path': img_data_url})
 
     except Exception as e:
-        print(f"❌ 에러: {e}")
+        print(f"Error: {e}")
+        # 에러 나도 임시 파일 있으면 지우기
+        if 'temp_filename' in locals() and os.path.exists(temp_filename):
+            try:
+                os.remove(temp_filename)
+            except:
+                pass
         return jsonify({'status': 'error', 'message': str(e)})
-
 # Vercel을 위한 필수 설정 (이거 없으면 안 돌아감)
 # Vercel은 app 객체를 찾아서 실행합니다.
 if __name__ == '__main__':
