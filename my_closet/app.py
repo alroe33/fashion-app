@@ -151,7 +151,7 @@ def generate():
             clothes_desc += " - User wears the BOTTOM image."
 
         # 2. Gemini 프롬프트 생성
-        gemini_model = genai.GenerativeModel('gemini-1.5-flash')
+        gemini_model = genai.GenerativeModel('gemini-2.5-flash')
         system_instruction = f"""
         Describe Image 1 (User) in extreme detail (Body, Pose, Face).
         Then describe the clothes.
