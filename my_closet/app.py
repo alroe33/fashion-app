@@ -5,6 +5,7 @@ import requests
 import json
 import base64
 import pymysql
+import time
 from io import BytesIO
 from werkzeug.security import generate_password_hash, check_password_hash
 from PIL import Image
@@ -171,22 +172,37 @@ def generate():
             person_generation="allow_adult",
             safety_filter_level="block_some"
         )
+# 1) 임시 파일명 생성
+        temp_filename = f"temp_{current_user.id}_{int(time.time())}.png"
+        
+        # 2) 파일로 저장 (여기서는 format 옵션을 쓰지 않음!)
+        images[0].save(temp_filename) 
 
-        # 4. [핵심] 이미지를 파일이 아닌 Base64 문자열로 변환
-        # Vercel은 파일 저장이 안 되므로, 이미지 데이터를 문자열로 바꿔서 HTML에 직접 쏴줍니다.
+        # 3) PIL로 다시 열어서 메모리 버퍼에 담기
+        img = Image.open(temp_filename)
         img_io = BytesIO()
-        images[0].save(img_io, format='PNG')
+        img.save(img_io, format='PNG') # 이제 PIL 객체이므로 format 옵션 사용 가능
         img_io.seek(0)
         
-        # Base64 인코딩
+        # 4) Base64 인코딩
         img_base64 = base64.b64encode(img_io.getvalue()).decode('utf-8')
         img_data_url = f"data:image/png;base64,{img_base64}"
         
+        # 5) 임시 파일 삭제 (청소)
+        try:
+            os.remove(temp_filename)
+        except:
+            pass # 혹시 삭제 못 해도 패스
+
         return jsonify({'status': 'success', 'image_path': img_data_url})
 
     except Exception as e:
         print(f"Error: {e}")
+        # 에러 나도 임시 파일 있으면 지우기
+        if 'temp_filename' in locals() and os.path.exists(temp_filename):
+            os.remove(temp_filename)
         return jsonify({'status': 'error', 'message': str(e)})
+    
 
 # Vercel을 위한 필수 설정 (이거 없으면 안 돌아감)
 # Vercel은 app 객체를 찾아서 실행합니다.
