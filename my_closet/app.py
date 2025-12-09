@@ -128,81 +128,105 @@ def logout():
 @app.route('/generate', methods=['POST'])
 @login_required
 def generate():
+    print("🎨 [서버] 구글 AI 스타일 생성 요청 시작!")
+
     try:
-        # 데이터 받기 (파일 저장 안 함!)
+        # 1. 데이터 받기
         model_file = request.files['model_image']
         top_url = request.form.get('top_url')
         bottom_url = request.form.get('bottom_url')
 
-        # 1. 이미지를 메모리에서 바로 PIL로 변환
-        user_img = Image.open(model_file)
-        
-        gemini_inputs = [user_img]
-        clothes_desc = ""
+        # 2. 이미지 준비 (PIL)
+        user_img_path = os.path.join(TEMP_FOLDER, f"user_{current_user.id}.jpg")
+        model_file.save(user_img_path)
+        user_img = Image.open(user_img_path)
 
+        gemini_inputs = [user_img]
+        input_role_desc = "Image 1 is the User (Target Model)."
+
+        # 상의 처리
         if top_url and top_url != 'null':
-            # requests로 이미지 바이트 가져와서 바로 열기
             top_bytes = BytesIO(requests.get(top_url).content)
             gemini_inputs.append(Image.open(top_bytes))
-            clothes_desc += " - User wears the TOP image."
+            input_role_desc += " Image 2 is the TOP clothing (Must wear this)."
 
+        # 하의 처리
         if bottom_url and bottom_url != 'null':
             bottom_bytes = BytesIO(requests.get(bottom_url).content)
             gemini_inputs.append(Image.open(bottom_bytes))
-            clothes_desc += " - User wears the BOTTOM image."
+            # 이미지가 3개째인지 2개째인지 확인
+            img_idx = 3 if (top_url and top_url != 'null') else 2
+            input_role_desc += f" Image {img_idx} is the BOTTOM clothing (Must wear this)."
 
-        # 2. Gemini 프롬프트 생성
-        gemini_model = genai.GenerativeModel('gemini-2.5-flash')
+        # 3. [Gemini] 프롬프트 엔지니어링 (옷 묘사 최우선!)
+        gemini_model = genai.GenerativeModel('gemini-1.5-flash')
+        
+        # ▼▼▼ 여기가 핵심! Gemini에게 내리는 아주 구체적인 지령 ▼▼▼
         system_instruction = f"""
-        Describe Image 1 (User) in extreme detail (Body, Pose, Face).
-        Then describe the clothes.
-        Create a prompt for Imagen 3 starting with "A high-quality full-body fashion photo of...".
-        {clothes_desc}
+        You are a fashion expert creating a prompt for an AI image generator.
+        Your goal is to describe the target look so the AI can draw the user wearing the NEW clothes.
+
+        [INPUT IMAGES ROLE]
+        {input_role_desc}
+
+        [INSTRUCTIONS]
+        Step 1. Analyze the User (Image 1) to preserve identity.
+        - Describe their Face, Hairstyle, Body Shape, and Pose in detail.
+        - **IMPORTANT: IGNORE the clothes the user is currently wearing in Image 1.**
+
+        Step 2. Analyze the NEW Clothes (Image 2, 3) visually.
+        - Look at the provided clothing images closely.
+        - Extract details: Color (e.g., 'Baby Blue'), Fabric (e.g., 'Denim'), Pattern (e.g., 'Checkered'), Fit (e.g., 'Oversized'), and distinctive features (e.g., 'Buttons', 'Logo', 'Collar').
+        
+        Step 3. Construct the Final Prompt.
+        - Start with: "A high-quality full-body fashion shot of..."
+        - Combine the [User Description] with the [New Clothes Description].
+        - Explicitly state: "The user is wearing a [Detailed description of Top] and [Detailed description of Bottom]."
+        - Ensure the background matches the vibe of Image 1.
         """
+        
         full_inputs = [system_instruction] + gemini_inputs
+
+        print("🧠 [Gemini] 옷 특징 추출 및 프롬프트 작성 중...")
         response = gemini_model.generate_content(full_inputs)
         generated_prompt = response.text
+        print(f"📝 [생성된 프롬프트] {generated_prompt}")
 
-        # 3. Imagen 생성
+        # 4. [Imagen] 이미지 생성 (재시도 로직 포함)
+        print("🎨 [Imagen] 이미지 그리는 중...")
         imagen_model = ImageGenerationModel.from_pretrained("imagen-3.0-generate-001")
-        images = imagen_model.generate_images(
-            prompt=generated_prompt,
-            number_of_images=1,
-            aspect_ratio="9:16",
-            person_generation="allow_adult",
-            safety_filter_level="block_some"
-        )
-# 1) 임시 파일명 생성
-        temp_filename = f"temp_{current_user.id}_{int(time.time())}.png"
         
-        # 2) 파일로 저장 (여기서는 format 옵션을 쓰지 않음!)
-        images[0].save(temp_filename) 
+        images = None
+        for attempt in range(3): # 3번 재시도
+            try:
+                images = imagen_model.generate_images(
+                    prompt=generated_prompt,
+                    number_of_images=1,
+                    aspect_ratio="9:16",
+                    person_generation="allow_adult",
+                    safety_filter_level="block_some"
+                )
+                break
+            except Exception as e:
+                print(f"⚠️ 생성 실패 ({attempt+1}/3): {e}")
+                if "429" in str(e): time.sleep(2)
+                else: break
 
-        # 3) PIL로 다시 열어서 메모리 버퍼에 담기
-        img = Image.open(temp_filename)
+        if not images:
+            raise Exception("이미지 생성 실패 (서버 혼잡)")
+
+        # 5. 결과 변환 (Base64)
         img_io = BytesIO()
-        img.save(img_io, format='PNG') # 이제 PIL 객체이므로 format 옵션 사용 가능
+        images[0].save(img_io, format='PNG')
         img_io.seek(0)
-        
-        # 4) Base64 인코딩
         img_base64 = base64.b64encode(img_io.getvalue()).decode('utf-8')
         img_data_url = f"data:image/png;base64,{img_base64}"
         
-        # 5) 임시 파일 삭제 (청소)
-        try:
-            os.remove(temp_filename)
-        except:
-            pass # 혹시 삭제 못 해도 패스
-
         return jsonify({'status': 'success', 'image_path': img_data_url})
 
     except Exception as e:
-        print(f"Error: {e}")
-        # 에러 나도 임시 파일 있으면 지우기
-        if 'temp_filename' in locals() and os.path.exists(temp_filename):
-            os.remove(temp_filename)
+        print(f"❌ 에러: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
-    
 
 # Vercel을 위한 필수 설정 (이거 없으면 안 돌아감)
 # Vercel은 app 객체를 찾아서 실행합니다.
