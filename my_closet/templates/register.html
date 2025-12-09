@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>회원가입 - AI Closet</title>
+    <style>
+        body { display: flex; justify-content: center; align-items: center; height: 100vh; background: #f0f2f5; font-family: sans-serif; }
+        .box { background: white; padding: 40px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); width: 300px; text-align: center; }
+        input { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
+        button { width: 100%; padding: 10px; background: #333; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
+        button:hover { background: #555; }
+        .links { margin-top: 15px; font-size: 0.9rem; }
+        .alert { color: red; font-size: 0.9rem; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+    <div class="box">
+        <h2>📝 회원가입</h2>
+
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="alert">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <form method="POST">
+            <input type="text" name="username" placeholder="사용할 아이디" required>
+            <input type="password" name="password" placeholder="비밀번호" required>
+            <button type="submit">가입하기</button>
+        </form>
+        <div class="links">
+            이미 계정이 있으신가요? <a href="/login">로그인</a>
+        </div>
+    </div>
+</body>
+</html>

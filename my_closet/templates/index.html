@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Style Mix Match</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        /* (기존 스타일 유지하되 레이아웃 관련 수정) */
+        body, html { margin: 0; padding: 0; height: 100%; font-family: 'Noto Sans KR', sans-serif; background-color: #f0f2f5; display: flex; justify-content: center; align-items: center; }
+        .app-container { width: 100%; max-width: 1200px; height: 90vh; background: white; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); display: flex; flex-direction: column; overflow: hidden; border: 1px solid #ddd; }
+        
+        .header { text-align: center; padding: 15px; background: #fff; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; padding-left: 30px; padding-right: 30px;}
+        .header h1 { margin: 0; font-size: 1.5rem; color: #333; }
+        
+        .main-content { flex: 1; display: flex; padding: 20px; gap: 20px; overflow: hidden; }
+        
+        .sidebar { flex: 1; display: flex; flex-direction: column; gap: 15px; overflow-y: auto; }
+        .sidebar-title { font-weight: bold; color: #555; text-align: center; background: #eee; padding: 10px; border-radius: 10px; }
+
+        .item-card { border-radius: 12px; overflow: hidden; cursor: pointer; border: 3px solid transparent; transition: all 0.2s; background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.08); height: 180px; position: relative; flex-shrink: 0; }
+        .item-card img { width: 100%; height: 100%; object-fit: cover; }
+        .item-card:hover { transform: translateY(-3px); }
+        .item-card.selected { border-color: #7b68ee; transform: scale(0.98); box-shadow: 0 0 0 4px rgba(123, 104, 238, 0.2); }
+        
+        .center-stage { flex: 1.5; background-color: #ffffff; border-radius: 15px; position: relative; overflow: hidden; display: flex; justify-content: center; align-items: center; }
+        .model-img { max-width: 100%; max-height: 100%; object-fit: contain; cursor: pointer; display: none; }
+        .upload-hint { background: rgba(245, 245, 245, 0.9); color: #555; padding: 15px 25px; border-radius: 30px; font-weight: bold; pointer-events: none; border: 2px dashed #bbb; }
+        
+        .buy-btn { position: absolute; top: 8px; right: 8px; background-color: rgba(0,0,0,0.6); color: white; font-size: 0.75rem; padding: 5px 10px; border-radius: 15px; text-decoration: none; z-index: 5; }
+        .buy-btn:hover { background-color: #7b68ee; }
+
+        #loading-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.95); display: none; flex-direction: column; justify-content: center; align-items: center; z-index: 10; text-align: center; }
+        .spinner { width: 50px; height: 50px; border: 5px solid #f3f3f3; border-top: 5px solid #7b68ee; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 20px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .controls { padding: 20px; background: #fff; border-top: 1px solid #eee; display: flex; justify-content: center; gap: 15px; }
+        .btn { padding: 15px 40px; border: none; border-radius: 50px; font-size: 1.1rem; font-weight: bold; cursor: pointer; transition: 0.2s; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        .btn-tryon { background: linear-gradient(135deg, #7b68ee, #5f4bc6); color: white; width: 50%; }
+        .btn-tryon:hover { transform: translateY(-2px); box-shadow: 0 6px 15px rgba(95, 75, 198, 0.3); }
+        .btn-tryon:disabled { background: #ccc; cursor: not-allowed; transform: none; }
+        .btn-refresh { background: #fff; color: #333; border: 2px solid #eee; }
+        .btn-refresh:hover { background: #f8f9fa; }
+    </style>
+</head>
+<body>
+
+    <div class="app-container">
+        <div class="header">
+            <h1>AI Style Mix & Match ✨</h1>
+            <div style="font-size: 0.9rem;">
+                👋 <b>{{ username }}</b>님 <a href="/logout" style="color: #888; text-decoration: none; margin-left: 10px;">(로그아웃)</a>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="sidebar">
+                <div class="sidebar-title">👕 상의 (Tops)</div>
+                <div id="top-list"></div>
+            </div>
+
+            <div class="center-stage" onclick="document.getElementById('file-input').click()">
+                <img id="main-model" class="model-img" src="" alt="모델 이미지">
+                <div class="upload-hint" id="upload-hint-text">📸 내 전신 사진 올리기</div>
+                <input type="file" id="file-input" accept="image/*" style="display: none;" onchange="loadModelImage(event)">
+                
+                <div id="loading-overlay">
+                    <div class="spinner"></div>
+                    <div style="color: #333; font-weight: bold; font-size: 1.1rem;">AI 디자이너가 스타일링 중입니다...<br><span style="font-size: 0.9rem; color: #666; font-weight: normal;">(약 10~20초 소요)</span></div>
+                </div>
+            </div>
+
+            <div class="sidebar">
+                <div class="sidebar-title">👖 하의 (Bottoms)</div>
+                <div id="bottom-list"></div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button class="btn btn-tryon" onclick="tryOnClothes()">✨ 스타일 생성하기</button>
+            <button class="btn btn-refresh" onclick="refreshItems()">🔄 의상 새로고침</button>
+        </div>
+    </div>
+
+    <script>
+        // DATA_START
+const dataDB = {
+    "tops": [
+        {
+            "brand": "OVERSIZED DENIM SHIRT black",
+            "name": "OVERSIZED DENIM SHIRT black",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20230206/3062587/3062587_17248319677461_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/3062587"
+        },
+        {
+            "brand": "오버사이즈 크루 스웨트셔츠 - 그레이:블랙 / JY1402",
+            "name": "오버사이즈 크루 스웨트셔츠 - 그레이:블랙 / JY1402",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20251106/5693696/5693696_17624152025794_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5693696"
+        },
+        {
+            "brand": "멀티 스트라이프 래글런 단가라 레이어링 롱슬리브 [블루]",
+            "name": "멀티 스트라이프 래글런 단가라 레이어링 롱슬리브 [블루]",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20250828/5371574/5371574_17563380505989_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5371574"
+        },
+        {
+            "brand": "램스울 크루넥 오버 니트 - 6 COLOR",
+            "name": "램스울 크루넥 오버 니트 - 6 COLOR",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20231102/3680127/3680127_17000292588312_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/3680127"
+        },
+        {
+            "brand": "볼드 폭스 헤드 패치 컴포트 맨투맨 - 카다몬 / MM00316KM03210117",
+            "name": "볼드 폭스 헤드 패치 컴포트 맨투맨 - 카다몬 / MM00316KM03210117",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20250225/4829062/4829062_17412272278434_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/4829062"
+        },
+        {
+            "brand": "플로킹 로고 그래픽 후드 티셔츠 (S25FMFHD62) Fog Gray",
+            "name": "플로킹 로고 그래픽 후드 티셔츠 (S25FMFHD62) Fog Gray",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20251107/5700757/5700757_17624972913846_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5700757"
+        },
+        {
+            "brand": "소프트 울 블렌드 크루넥 스웨트 니트 블루",
+            "name": "소프트 울 블렌드 크루넥 스웨트 니트 블루",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20251024/5638117/5638117_17623505044665_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5638117"
+        },
+        {
+            "brand": "스마일 페이스 맨투맨 LO9TU963_BLACK",
+            "name": "스마일 페이스 맨투맨 LO9TU963_BLACK",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20251110/5707988/5707988_17627562690860_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5707988"
+        },
+        {
+            "brand": "Flick Cardigan_5Colors",
+            "name": "Flick Cardigan_5Colors",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20250911/5442195/5442195_17576499316634_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5442195"
+        },
+        {
+            "brand": "[장원영 PICK] MAISON DE ROLA PATCHWORK KNIT NAVY",
+            "name": "[장원영 PICK] MAISON DE ROLA PATCHWORK KNIT NAVY",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20250813/5319124/5319124_17567736986846_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5319124"
+        },
+        {
+            "brand": "우먼즈 앙고라 블렌드 크루 넥 니트 [아이보리]",
+            "name": "우먼즈 앙고라 블렌드 크루 넥 니트 [아이보리]",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20220822/2731569/2731569_17623017830137_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/2731569"
+        },
+        {
+            "brand": "RIBBON POCKET STRIPE LONG SLEEVE BLACK PINK",
+            "name": "RIBBON POCKET STRIPE LONG SLEEVE BLACK PINK",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20250909/5426359/5426359_17573981184039_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5426359"
+        },
+        {
+            "brand": "Luvv knit balaclava set_2piece (cream)",
+            "name": "Luvv knit balaclava set_2piece (cream)",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20251103/5679669/5679669_17635295473868_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5679669"
+        },
+        {
+            "brand": "트리코 울 브러쉬 니트 (4COLOR)",
+            "name": "트리코 울 브러쉬 니트 (4COLOR)",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20251027/5646046/5646046_17621381031598_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5646046"
+        },
+        {
+            "brand": "PATCH ROUND PULLOVER KNIT _ BRICK",
+            "name": "PATCH ROUND PULLOVER KNIT _ BRICK",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20250811/5310818/5310818_17556800247970_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5310818"
+        },
+        {
+            "brand": "릴렉스드 백 사틴 셔츠 [화이트]",
+            "name": "릴렉스드 백 사틴 셔츠 [화이트]",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20250214/4787889/4787889_17557629752595_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/4787889"
+        },
+        {
+            "brand": "3-WAY 도트 레이어드 롱슬리브 (BLACK)_F25QB071",
+            "name": "3-WAY 도트 레이어드 롱슬리브 (BLACK)_F25QB071",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20250206/4765067/4765067_17393370390347_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/4765067"
+        },
+        {
+            "brand": "단테 보트넥 울 스웨터 ( 핑크 )",
+            "name": "단테 보트넥 울 스웨터 ( 핑크 )",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20251015/5592417/5592417_17630802442796_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5592417"
+        },
+        {
+            "brand": "언발란스 오프숄더 탑_오트밀",
+            "name": "언발란스 오프숄더 탑_오트밀",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20251111/5712710/5712710_17633460917264_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5712710"
+        },
+        {
+            "brand": "시그니처 브이넥 풀오버 [BLACK] / WBE1L05522",
+            "name": "시그니처 브이넥 풀오버 [BLACK] / WBE1L05522",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20250226/4837492/4837492_17406311592200_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/4837492"
+        },
+        {
+            "brand": "BUTTON NECK LAYERED LONG SLEEVE (GREEN)",
+            "name": "BUTTON NECK LAYERED LONG SLEEVE (GREEN)",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20251112/5723264/5723264_17631105982628_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5723264"
+        },
+        {
+            "brand": "[지바노프 X 르뎁트]가먼트 베이직 카라 니트 [9컬러]",
+            "name": "[지바노프 X 르뎁트]가먼트 베이직 카라 니트 [9컬러]",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20241031/4578129/4578129_17441817283524_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/4578129"
+        },
+        {
+            "brand": "Soft Cashmere V-neck Knit_Navy",
+            "name": "Soft Cashmere V-neck Knit_Navy",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20251106/5696491/5696491_17624198676609_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5696491"
+        },
+        {
+            "brand": "W BUTTON CROP PULLOVER [SKY BLUE]",
+            "name": "W BUTTON CROP PULLOVER [SKY BLUE]",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20240924/4459847/4459847_17286275110920_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/4459847"
+        },
+        {
+            "brand": "코튼 헤라시 라운드 니트_9Color",
+            "name": "코튼 헤라시 라운드 니트_9Color",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20241010/4503195/4503195_17567903866593_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/4503195"
+        },
+        {
+            "brand": "플레인 스트라이프 셔츠, Ivory Brown",
+            "name": "플레인 스트라이프 셔츠, Ivory Brown",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20240808/4312496/4312496_17569659977352_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/4312496"
+        },
+        {
+            "brand": "커시브 1984 자수 오버핏 맨투맨 GMT-150",
+            "name": "커시브 1984 자수 오버핏 맨투맨 GMT-150",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20230906/3536360/3536360_17098737467085_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/3536360"
+        },
+        {
+            "brand": "날개사 머플러 세트 풀오버_MIWKAFV4SS",
+            "name": "날개사 머플러 세트 풀오버_MIWKAFV4SS",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20251118/5747797/5747797_17635975110182_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5747797"
+        },
+        {
+            "brand": "크래그 SL 코튼 SS 남성 - BLACK / ATPFM09533",
+            "name": "크래그 SL 코튼 SS 남성 - BLACK / ATPFM09533",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20251103/5678820/5678820_17633693153379_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5678820"
+        },
+        {
+            "brand": "스트라이프 니트 롱 슬리브 티셔츠 2color",
+            "name": "스트라이프 니트 롱 슬리브 티셔츠 2color",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20250731/5284116/5284116_17628320034976_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5284116"
+        },
+        {
+            "brand": "HAIRY CABLE KNIT PULLOVER IN LIGHT BEIGE",
+            "name": "HAIRY CABLE KNIT PULLOVER IN LIGHT BEIGE",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20251029/5660577/5660577_17617201841086_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5660577"
+        },
+        {
+            "brand": "마들렌 울 니트 후드 (4COLOR)",
+            "name": "마들렌 울 니트 후드 (4COLOR)",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20240809/4313525/4313525_17243721604382_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/4313525"
+        },
+        {
+            "brand": "HBL OG 테이프라인 후드티 블랙(UP421CHDO6)",
+            "name": "HBL OG 테이프라인 후드티 블랙(UP421CHDO6)",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20240926/4465384/4465384_17382890335147_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/4465384"
+        },
+        {
+            "brand": "원 포인트 롱슬리브 티셔츠(M) WHITE",
+            "name": "원 포인트 롱슬리브 티셔츠(M) WHITE",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20251106/5695275/5695275_17630035002970_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5695275"
+        },
+        {
+            "brand": "썸머 빈티지 누아 체크 셔츠",
+            "name": "썸머 빈티지 누아 체크 셔츠",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20250529/5157563/5157563_17485047179179_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5157563"
+        },
+        {
+            "brand": "오일카키 피그먼트 후드 모스그린 SMHD4676",
+            "name": "오일카키 피그먼트 후드 모스그린 SMHD4676",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20240926/4465413/4465413_17273134719775_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/4465413"
+        },
+        {
+            "brand": "MELTING BASIC OFF-SHOULDER KNIT_IVORY",
+            "name": "MELTING BASIC OFF-SHOULDER KNIT_IVORY",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20251112/5719709/5719709_17629135876592_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5719709"
+        },
+        {
+            "brand": "리파인드 투웨이 니트 집업 [베이지]",
+            "name": "리파인드 투웨이 니트 집업 [베이지]",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20240806/4299801/4299801_17278475132572_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/4299801"
+        },
+        {
+            "brand": "이스트글럭 피그먼트 후드 브라운 JIHD7745",
+            "name": "이스트글럭 피그먼트 후드 브라운 JIHD7745",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20240905/4407253/4407253_17254975563352_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/4407253"
+        },
+        {
+            "brand": "헨리넥 니트 스웨터 라이트베이지",
+            "name": "헨리넥 니트 스웨터 라이트베이지",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20250916/5470539/5470539_17580065283403_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5470539"
+        },
+        {
+            "brand": "[해피가이정호 PICK] 리브드 오버핏 헨리넥 니트 [네이비]",
+            "name": "[해피가이정호 PICK] 리브드 오버핏 헨리넥 니트 [네이비]",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20250902/5388583/5388583_17621450282509_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5388583"
+        },
+        {
+            "brand": "가먼트 다이 콜리지 릴렉스트 핏 크루넥 스웨트셔츠(M) OLIVEDRAB",
+            "name": "가먼트 다이 콜리지 릴렉스트 핏 크루넥 스웨트셔츠(M) OLIVEDRAB",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20251106/5695251/5695251_17630034088993_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5695251"
+        },
+        {
+            "brand": "Track Pullover (U24DTTS472)",
+            "name": "Track Pullover (U24DTTS472)",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20240816/4335513/4335513_17260404158725_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/4335513"
+        },
+        {
+            "brand": "SYMBOL PIGMENT WAFFLE T OATMEAL",
+            "name": "SYMBOL PIGMENT WAFFLE T OATMEAL",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20251106/5696830/5696830_17628330452170_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5696830"
+        },
+        {
+            "brand": "Dark red Bohemian graphic longsleeve",
+            "name": "Dark red Bohemian graphic longsleeve",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20251001/5558764/5558764_17600034724623_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5558764"
+        },
+        {
+            "brand": "One Off-shoulder Sleeve [Black]",
+            "name": "One Off-shoulder Sleeve [Black]",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20241018/4535689/4535689_17292401227333_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/4535689"
+        },
+        {
+            "brand": "캐시미어 니트_블랙",
+            "name": "캐시미어 니트_블랙",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20250304/4854260/4854260_17410749358949_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/4854260"
+        },
+        {
+            "brand": "체리포크 레글런 피그먼트 롱슬리브 스모크블랙",
+            "name": "체리포크 레글런 피그먼트 롱슬리브 스모크블랙",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20250811/5311132/5311132_17549597658861_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5311132"
+        },
+        {
+            "brand": "네크라인 라운드 리벳 롱슬리브 오트밀",
+            "name": "네크라인 라운드 리벳 롱슬리브 오트밀",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20251027/5645153/5645153_17621434534721_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5645153"
+        },
+        {
+            "brand": "[W]브이넥 아가일 니트 - 2color",
+            "name": "[W]브이넥 아가일 니트 - 2color",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20250804/5290766/5290766_17567906103275_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5290766"
+        }
+    ],
+    "bottoms": [
+        {
+            "brand": "코듀로이 와이드 팬츠 415913 [5color]",
+            "name": "코듀로이 와이드 팬츠 415913 [5color]",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20250919/5497204/5497204_17603332558630_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5497204"
+        },
+        {
+            "brand": "아디브레이크 팬츠 - 블랙 / IU2519",
+            "name": "아디브레이크 팬츠 - 블랙 / IU2519",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20240201/3837942/3837942_17067667976462_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/3837942"
+        },
+        {
+            "brand": "Banding One Tuck Wide Denim Pants - Black",
+            "name": "Banding One Tuck Wide Denim Pants - Black",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20211018/2184088/2184088_4_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/2184088"
+        },
+        {
+            "brand": "루즈 데님 팬츠 - 블루데님 / JN0726",
+            "name": "루즈 데님 팬츠 - 블루데님 / JN0726",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20251013/5584684/5584684_17604252093047_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5584684"
+        },
+        {
+            "brand": "파라슈트 카고 스트링 코튼 팬츠 3COLOR",
+            "name": "파라슈트 카고 스트링 코튼 팬츠 3COLOR",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20231226/3767189/3767189_17156740375570_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/3767189"
+        },
+        {
+            "brand": "[2PACK] 2pack 마일(사계절용) 벌룬 스웨트 팬츠 6종 BJLP4503",
+            "name": "[2PACK] 2pack 마일(사계절용) 벌룬 스웨트 팬츠 6종 BJLP4503",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20220516/2560868/2560868_1_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/2560868"
+        },
+        {
+            "brand": "논페이드 커브드 데님 팬츠 브라운",
+            "name": "논페이드 커브드 데님 팬츠 브라운",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20240201/3840549/3840549_17090818368009_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/3840549"
+        },
+        {
+            "brand": "원턱 와이드 코튼 팬츠 (KHAKI)",
+            "name": "원턱 와이드 코튼 팬츠 (KHAKI)",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20210204/1778286/1778286_1_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/1778286"
+        },
+        {
+            "brand": "[기모 or 논기모] 투턱 와이드 슬랙스 딥 브라운",
+            "name": "[기모 or 논기모] 투턱 와이드 슬랙스 딥 브라운",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20250822/5354652/5354652_17579182902159_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5354652"
+        },
+        {
+            "brand": "[올데프 착용] 남성 베기핏 세퀴아 미드 블루 데님 4RD939G 01F",
+            "name": "[올데프 착용] 남성 베기핏 세퀴아 미드 블루 데님 4RD939G 01F",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20250925/5529975/5529975_17630980488677_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5529975"
+        },
+        {
+            "brand": "데일리 코듀로이 밴딩 팬츠 - 4 COLOR",
+            "name": "데일리 코듀로이 밴딩 팬츠 - 4 COLOR",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20221013/2861160/2861160_17313009402780_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/2861160"
+        },
+        {
+            "brand": "퍼티그 벌룬 코듀로이 팬츠 MPT110 [DARKGRAY]",
+            "name": "퍼티그 벌룬 코듀로이 팬츠 MPT110 [DARKGRAY]",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20211006/2164657/2164657_17337981934664_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/2164657"
+        },
+        {
+            "brand": "FLORAL FLEECE PANTS IVORY",
+            "name": "FLORAL FLEECE PANTS IVORY",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20250912/5453237/5453237_17611997279680_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5453237"
+        },
+        {
+            "brand": "776 코튼 원턱 와이드 팬츠 - 화이트",
+            "name": "776 코튼 원턱 와이드 팬츠 - 화이트",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20240116/3797703/3797703_17254651685038_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/3797703"
+        },
+        {
+            "brand": "우븐 파이어버드 트랙 팬츠 - 딥퍼플 / IZ2412",
+            "name": "우븐 파이어버드 트랙 팬츠 - 딥퍼플 / IZ2412",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20240819/4340753/4340753_17243008610620_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/4340753"
+        },
+        {
+            "brand": "카고 기모 와이드 팬츠 블랙 UQ423CFPO5",
+            "name": "카고 기모 와이드 팬츠 블랙 UQ423CFPO5",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20251105/5686958/5686958_17623071172195_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5686958"
+        },
+        {
+            "brand": "와이드 조거 스웻 팬츠 (CHARCOAL)",
+            "name": "와이드 조거 스웻 팬츠 (CHARCOAL)",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20210204/1778391/1778391_1_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/1778391"
+        },
+        {
+            "brand": "더블 사이드 라인 트랙 버티컬 팬츠 (BROWN)",
+            "name": "더블 사이드 라인 트랙 버티컬 팬츠 (BROWN)",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20230801/3439084/3439084_17177231930985_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/3439084"
+        },
+        {
+            "brand": "스티치 와이드 스웨트 팬츠 [오트밀]",
+            "name": "스티치 와이드 스웨트 팬츠 [오트밀]",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20231013/3624669/3624669_17187592237417_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/3624669"
+        },
+        {
+            "brand": "카펜터 와이드 스웻팬츠 GLP-647_네이비",
+            "name": "카펜터 와이드 스웻팬츠 GLP-647_네이비",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20250804/5289777/5289777_17570456768175_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5289777"
+        },
+        {
+            "brand": "빅포켓 멀티 카고 스웻 팬츠 (카키)",
+            "name": "빅포켓 멀티 카고 스웻 팬츠 (카키)",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20241226/4681240/4681240_17369929631844_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/4681240"
+        },
+        {
+            "brand": "NEW RAISEBORN HALF PANTS LONG VER (3 COLOR)",
+            "name": "NEW RAISEBORN HALF PANTS LONG VER (3 COLOR)",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20251121/5760932/5760932_17636984655415_big.png?w=390",
+            "link": "https://www.musinsa.com/products/5760932"
+        },
+        {
+            "brand": "어니언 퀼티드 패딩 팬츠 [라이트 그레이]",
+            "name": "어니언 퀼티드 패딩 팬츠 [라이트 그레이]",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20240826/4368622/4368622_17326847687652_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/4368622"
+        },
+        {
+            "brand": "코지 레그핏 다트 기모 팬츠 ( 4Color )",
+            "name": "코지 레그핏 다트 기모 팬츠 ( 4Color )",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20251001/5557256/5557256_17593113526286_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5557256"
+        },
+        {
+            "brand": "핀턱 와이드 카고 팬츠 (화이트)",
+            "name": "핀턱 와이드 카고 팬츠 (화이트)",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20240221/3886875/3886875_17337048301184_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/3886875"
+        },
+        {
+            "brand": "커브드 원턱 벌룬핏 스웨트 팬츠 [그레이]",
+            "name": "커브드 원턱 벌룬핏 스웨트 팬츠 [그레이]",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20250903/5395899/5395899_17624975475285_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5395899"
+        },
+        {
+            "brand": "섬머 컴포터블 데님 팬츠 (DARK GREY)",
+            "name": "섬머 컴포터블 데님 팬츠 (DARK GREY)",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20240523/4152329/4152329_17165258898817_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/4152329"
+        },
+        {
+            "brand": "커스텀 원턱 와이드 코듀로이 팬츠 브라운",
+            "name": "커스텀 원턱 와이드 코듀로이 팬츠 브라운",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20240930/4476184/4476184_17281100791751_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/4476184"
+        },
+        {
+            "brand": "[기모버전 추가]이지 세미와이드 슬랙스 3Color",
+            "name": "[기모버전 추가]이지 세미와이드 슬랙스 3Color",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20240808/4308000/4308000_17261235549408_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/4308000"
+        },
+        {
+            "brand": "올 데이 코튼 밴딩 팬츠-3Color",
+            "name": "올 데이 코튼 밴딩 팬츠-3Color",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20250812/5314388/5314388_17635995662993_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5314388"
+        },
+        {
+            "brand": "커브드 핀턱 벌룬 스웨트팬츠 브라운 YLP-602",
+            "name": "커브드 핀턱 벌룬 스웨트팬츠 브라운 YLP-602",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20250819/5336600/5336600_17562771175052_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5336600"
+        },
+        {
+            "brand": "라이크린넨 원턱 와이드 밴딩 팬츠 3Color",
+            "name": "라이크린넨 원턱 와이드 밴딩 팬츠 3Color",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20250407/4993190/4993190_17442590013409_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/4993190"
+        },
+        {
+            "brand": "[송필드콜라보] XF003 멀티 카고 포켓 워싱 데님 팬츠 (BLUE)",
+            "name": "[송필드콜라보] XF003 멀티 카고 포켓 워싱 데님 팬츠 (BLUE)",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20230731/3435222/3435222_17562643794198_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/3435222"
+        },
+        {
+            "brand": "스트라이프 원 턱 와이드 팬츠 [차콜]",
+            "name": "스트라이프 원 턱 와이드 팬츠 [차콜]",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20250429/5076906/5076906_17460814455120_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5076906"
+        },
+        {
+            "brand": "Space Hipster - MOD7",
+            "name": "Space Hipster - MOD7",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20230619/3371014/3371014_16883572104244_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/3371014"
+        },
+        {
+            "brand": "CHAOS SWEAT PANTS black",
+            "name": "CHAOS SWEAT PANTS black",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20240730/4283365/4283365_17228439220244_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/4283365"
+        },
+        {
+            "brand": "Vintage shaper jean",
+            "name": "Vintage shaper jean",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20251120/5758674/5758674_17639724170058_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5758674"
+        },
+        {
+            "brand": "BUSINESS M18 024 WIDE ONE BLACK",
+            "name": "BUSINESS M18 024 WIDE ONE BLACK",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20250228/4847060/4847060_17410638810526_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/4847060"
+        },
+        {
+            "brand": "우먼스 No.58 로고 와이드 팬츠 (블랙)",
+            "name": "우먼스 No.58 로고 와이드 팬츠 (블랙)",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20250409/5004248/5004248_17472014081612_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5004248"
+        },
+        {
+            "brand": "코듀로이 카고 파라슈트 팬츠 - 4 COLOR",
+            "name": "코듀로이 카고 파라슈트 팬츠 - 4 COLOR",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20230807/3448997/3448997_17169659821747_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/3448997"
+        },
+        {
+            "brand": "스트레이트 데님진 딥블루 MDPT056DBLUE",
+            "name": "스트레이트 데님진 딥블루 MDPT056DBLUE",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20240924/4459435/4459435_17603169430264_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/4459435"
+        },
+        {
+            "brand": "Two-Tuck Slacks 101 GREY",
+            "name": "Two-Tuck Slacks 101 GREY",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20230927/3599545/3599545_17206743033256_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/3599545"
+        },
+        {
+            "brand": "[AW] Santiago Slacks (Mink)",
+            "name": "[AW] Santiago Slacks (Mink)",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20230829/3510980/3510980_17563723632896_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/3510980"
+        },
+        {
+            "brand": "25 FW 원턱 와이드 슬랙스 (F01-3컬러)",
+            "name": "25 FW 원턱 와이드 슬랙스 (F01-3컬러)",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20250817/5328103/5328103_17582663204502_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/5328103"
+        },
+        {
+            "brand": "코듀로이 투 턱 와이드 팬츠 브라운 FPT402",
+            "name": "코듀로이 투 턱 와이드 팬츠 브라운 FPT402",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20211019/2186322/2186322_17018377938282_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/2186322"
+        },
+        {
+            "brand": "액티브 팬츠",
+            "name": "액티브 팬츠",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20220324/2441622/2441622_17453734236409_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/2441622"
+        },
+        {
+            "brand": "에어쿨링 샤론 부츠컷 레깅스 (롱) / AMPPT-07",
+            "name": "에어쿨링 샤론 부츠컷 레깅스 (롱) / AMPPT-07",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20250211/4775728/4775728_17392444934703_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/4775728"
+        },
+        {
+            "brand": "(기모추가) 투턱 히든 스트링 와이드 스웻 팬츠 [그레이멜란지]",
+            "name": "(기모추가) 투턱 히든 스트링 와이드 스웻 팬츠 [그레이멜란지]",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20250330/4963285/4963285_17627541378493_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/4963285"
+        },
+        {
+            "brand": "우먼 릴랙스드핏 데님 팬츠 인디고 다크",
+            "name": "우먼 릴랙스드핏 데님 팬츠 인디고 다크",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20250205/4759409/4759409_17388080054549_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/4759409"
+        },
+        {
+            "brand": "울 세미 와이드 히든 밴딩 슬랙스  [미디엄 그레이]",
+            "name": "울 세미 와이드 히든 밴딩 슬랙스  [미디엄 그레이]",
+            "img": "https://image.msscdn.net/thumbnails/images/goods_img/20210719/2032911/2032911_1_big.jpg?w=390",
+            "link": "https://www.musinsa.com/products/2032911"
+        }
+    ]
+};
+        // DATA_END
+
+        let selectedItems = { top: null, bottom: null };
+
+        function getRandomItems(array, count) {
+            if (!array || array.length === 0) return [];
+            return [...array].sort(() => 0.5 - Math.random()).slice(0, count);
+        }
+
+        function refreshItems() {
+            const topList = document.getElementById('top-list');
+            const bottomList = document.getElementById('bottom-list');
+            topList.innerHTML = ''; bottomList.innerHTML = '';
+            
+            // 선택 초기화
+            selectedItems = { top: null, bottom: null };
+            document.getElementById('loading-overlay').style.display = 'none';
+
+            // 상의 3개, 하의 3개 랜덤 배치
+            getRandomItems(dataDB.tops, 3).forEach(item => topList.appendChild(createCard(item, 'top')));
+            getRandomItems(dataDB.bottoms, 3).forEach(item => bottomList.appendChild(createCard(item, 'bottom')));
+        }
+
+        function createCard(product, type) {
+            const card = document.createElement('div');
+            card.className = 'item-card';
+            card.innerHTML = `
+                <img src="${product.img}">
+                <a href="${product.link}" target="_blank" class="buy-btn" onclick="event.stopPropagation()">🔗 구매</a>
+            `;
+            
+            card.onclick = () => {
+                // 해당 사이드바의 다른 카드 선택 해제
+                const container = type === 'top' ? document.getElementById('top-list') : document.getElementById('bottom-list');
+                Array.from(container.children).forEach(c => c.classList.remove('selected'));
+                
+                // 현재 카드 선택
+                card.classList.add('selected');
+                selectedItems[type] = product;
+            };
+            return card;
+        }
+
+        function loadModelImage(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = e => {
+                    const img = document.getElementById('main-model');
+                    img.src = e.target.result;
+                    img.style.display = 'block';
+                    document.getElementById('upload-hint-text').style.display = 'none';
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+ async function tryOnClothes() {
+        const fileInput = document.getElementById('file-input');
+        const top = selectedItems.top;
+        const bottom = selectedItems.bottom;
+
+        if (!fileInput.files[0] && document.getElementById('main-model').style.display === 'none') {
+            alert("⚠️ 모델 사진을 먼저 올려주세요!"); return;
+        }
+        if (!top && !bottom) {
+            alert("⚠️ 상의나 하의 중 하나를 선택해주세요!"); return;
+        }
+
+        // 알림 메시지 (얼굴 보존 안내)
+        let message = "✨ 얼굴은 그대로 두고 옷만 갈아입힙니다.\n\n";
+        if (top && bottom) {
+            message += "💡 선택하신 상의와 하의를 모두 입혀봅니다.";
+        } else if (top) {
+            message += "👕 선택하신 '상의'를 입혀봅니다.";
+        } else {
+            message += "👖 선택하신 '하의'를 입혀봅니다.";
+        }
+        
+        if(!confirm(message)) return;
+
+        const btn = document.querySelector('.btn-tryon');
+        btn.disabled = true;
+        document.getElementById('loading-overlay').style.display = 'flex';
+
+        try {
+            const formData = new FormData();
+            // 파일이 새로 선택되었으면 파일 전송, 아니면 기존 이미지 활용해야 하는데
+            // 여기서는 심플하게 '파일 인풋'에 있는 파일을 보냅니다.
+            // (주의: 이미지를 한 번 올리고 다른 옷 입을 때도 파일 인풋에 파일이 남아있어야 함)
+            if (fileInput.files[0]) {
+                formData.append('model_image', fileInput.files[0]);
+            } else {
+                alert("⚠️ 모델 사진 파일이 필요합니다. 다시 선택해주세요.");
+                throw new Error("No file");
+            }
+            
+            if (top) formData.append('top_url', top.img);
+            if (bottom) formData.append('bottom_url', bottom.img);
+
+            const response = await fetch('/generate', { method: 'POST', body: formData });
+            const result = await response.json();
+
+            if (result.status === 'success') {
+                const img = document.getElementById('main-model');
+                img.src = result.image_path + "?t=" + new Date().getTime();
+                img.style.display = 'block';
+                document.getElementById('upload-hint-text').style.display = 'none';
+            } else {
+                alert("오류 발생: " + result.message);
+            }
+        } catch (error) {
+            if (error.message !== "No file") alert("서버 연결 실패!");
+            console.error(error);
+        } finally {
+            btn.disabled = false;
+            document.getElementById('loading-overlay').style.display = 'none';
+        }
+    }
+        window.onload = refreshItems;
+    </script>
+</body>
+</html>
