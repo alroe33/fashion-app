@@ -161,7 +161,7 @@ def generate():
             input_role_desc += f" Image {img_idx} is the BOTTOM clothing (Must wear this)."
 
         # 3. [Gemini] 프롬프트 엔지니어링 (옷 묘사 최우선!)
-        gemini_model = genai.GenerativeModel('gemini-1.5-flash')
+        gemini_model = genai.GenerativeModel('gemini-2.5-flash')
         
         # ▼▼▼ 여기가 핵심! Gemini에게 내리는 아주 구체적인 지령 ▼▼▼
         system_instruction = f"""
