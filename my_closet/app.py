@@ -24,10 +24,12 @@ def get_db_connection():
         host=os.environ.get('DB_HOST'),
         user=os.environ.get('DB_USER'),
         password=os.environ.get('DB_PASSWORD'),
-        db=os.environ.get('DB_NAME'),
-        port=4000, # TiDB는 보통 4000, Aiven은 다를 수 있음
+        db=os.environ.get('DB_NAME'), # fashion_app 인지 확인
+        port=4000,
         charset='utf8mb4',
-        ssl={'ca': '/etc/ssl/certs/ca-certificates.crt'} # 클라우드 DB용 SSL 설정 (필요시)
+        # pymysql에서는 ssl_mode 대신 ssl 딕셔너리만 쓰면 됩니다.
+        # Render 서버에는 이 경로에 인증서가 이미 있습니다.
+        ssl={'ca': '/etc/ssl/certs/ca-certificates.crt'}
     )
 
 # --- 2. 구글 인증 (JSON 파일 내용을 환경변수에서 읽기) ---
