@@ -41,7 +41,9 @@ creds_dict = json.loads(google_creds_json) if google_creds_json else {}
 PROJECT_ID = creds_dict.get("project_id")
 LOCATION = "us-west1"
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
-
+STATIC_FOLDER = 'static'
+TEMP_FOLDER = os.path.join(STATIC_FOLDER, 'temp')
+os.makedirs(TEMP_FOLDER, exist_ok=True) # 폴더가 없으면 알아서 만듦
 try:
     if creds_dict:
         my_credentials = service_account.Credentials.from_service_account_info(creds_dict)
